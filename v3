@@ -64,7 +64,6 @@ default_params = {
     "sd_retracement_levels": [0.2, 0.1, 0, -0.1, -0.2, -0.3, -0.4, -0.5, -0.6, -0.7, -0.8, -0.9],
     "analysis_mode": "long",
     "selected_days": None,
-    "default_sd_retracement": 0.1,  # Default SD retracement for direct usage
     "default_target_sd": 1.0,       # Default target SD multiple
     
     # Filtering Options
@@ -100,7 +99,7 @@ default_params = {
     # Additional Analysis Options
     "calculate_profit_factor": False,
     "analyze_streaks": False,
-    "perform_param_sweep": False,
+    "perform_param_sweep": True,  # Default to TRUE for better user experience
     "perform_day_by_day_sweep": True,
     
     # Analysis Periods - Added clear period definitions
@@ -595,7 +594,7 @@ def get_long_session_metrics_with_sd_retracement(session_df, sd_retracement, par
     candidate_entry = baseline + sd_retracement * SD
     
     # Calculate TP based on Target SD
-    target_sd = params.get("target_sd", params["default_target_sd"])  # Use target_sd if provided, else default
+    target_sd = params["default_target_sd"]  # Use the default target SD
     TP = baseline + target_sd * SD
     
     # Find entry and simulate trade
@@ -2688,6 +2687,9 @@ def get_user_input():
     
     params = default_params.copy()
     
+    # ALWAYS enable parameter sweep by default
+    params["perform_param_sweep"] = True
+    
     # Main configuration categories with improved organization
     categories = [
         "1. Core Strategy Parameters",
@@ -2736,15 +2738,6 @@ def get_user_input():
                         print(f"New SD retracement levels: {params['sd_retracement_levels']}")
                     except ValueError:
                         print("Invalid input. Keeping current SD retracement levels.")
-                
-                # Default SD retracement (for direct usage)
-                print(f"\nCurrent default SD retracement: {params['default_sd_retracement']}")
-                default_sd_input = input("Default SD retracement value [leave blank to keep current]: ")
-                if default_sd_input.strip():
-                    try:
-                        params["default_sd_retracement"] = float(default_sd_input)
-                    except ValueError:
-                        print("Invalid input. Keeping current value.")
                 
                 # Target SD ranges
                 print(f"\nCurrent target SD ranges: {params['target_sd_ranges']}")
@@ -3082,12 +3075,10 @@ def get_user_input():
     print(f"Long Confirmation Window: {params['long_confirm_start']} to {params['long_confirm_end']}")
     print(f"Short Confirmation Window: {params['short_confirm_start']} to {params['short_confirm_end']}")
     
-    # Show analysis options
-    if params['perform_param_sweep']:
-        print("\nParameter Sweep: Enabled")
-        # Note: we're using the same SD retracement levels for both normal analysis and parameter sweep
-        print(f"Using SD retracement levels: {params['sd_retracement_levels']}")
-        print(f"Target SD ranges: {params['target_sd_ranges']}")
+    # Always show parameter sweep status (it's enabled by default)
+    print(f"\nParameter Sweep: Enabled")
+    print(f"Testing all SD retracement levels: {params['sd_retracement_levels']}")
+    print(f"With all target SD values: {params['target_sd_ranges']}")
     
     if params['perform_walk_forward']:
         print("\nWalk-forward Analysis: Enabled")
@@ -3113,6 +3104,9 @@ def main():
     
     # Get user parameters through interactive prompts
     params = get_user_input()
+    
+    # FORCE parameter sweep to be enabled
+    params['perform_param_sweep'] = True
     
     # Create output directory if needed and doesn't exist
     output_dir = params['file_options']['output_dir']
@@ -3194,121 +3188,15 @@ def main():
     print(f"Parameter Sweep: {'Enabled' if params['perform_param_sweep'] else 'Disabled'}")
     print(f"Walk-Forward Analysis: {'Enabled' if params['perform_walk_forward'] else 'Disabled'}")
     
-    # Default to parameter sweep if nothing explicitly chosen
-    # This ensures we run parameter sweep when the user expects it
-    if not params['perform_param_sweep'] and not params['perform_walk_forward']:
-        print("\nNo analysis option selected - defaulting to parameter sweep.")
-        params['perform_param_sweep'] = True
-    
-    # Run parameter sweep if requested
-    if params['perform_param_sweep']:
-        top_configs = perform_parameter_sweep(df, params)
+    # Run parameter sweep (always enabled)
+    print("\nStarting parameter sweep with all SD retracement levels...")
+    top_configs = perform_parameter_sweep(df, params)
     
     # Run walk-forward analysis if requested
     if params['perform_walk_forward']:
-        top_configs = None
-        if params['perform_param_sweep']:
-            # Already have top configs from parameter sweep
-            pass
-        else:
-            # Need to find top configs first
-            print("Finding optimal configurations before walk-forward analysis...")
-            top_configs = perform_parameter_sweep(df, params)
-        
         # Run walk-forward with top configs
+        print("\nStarting walk-forward analysis with the top configurations...")
         perform_walk_forward_analysis(df, params, top_configs)
-    
-    # Run standard backtest if no special analysis requested
-    if not params['perform_param_sweep'] and not params['perform_walk_forward']:
-        # Process all sessions with current parameters
-        print("\nRunning standard backtest with current parameters...")
-        
-        # Set up dummy variables for WDR filter
-        tuesday_dates = []
-        tuesday_wdr = {}
-        
-        results = process_all_sessions(df, params['sd_retracement_levels'], params, tuesday_dates, tuesday_wdr)
-        results_df = pd.DataFrame(results)
-        
-        if results_df.empty:
-            print("No valid sessions were processed.")
-            return
-        
-        # Create a copy of the data with filters applied
-        filtered_df = results_df.copy()
-        
-        # Apply WDR filter if enabled
-        if params["use_wdr_filter"] and 'wdr_session_invalid' in filtered_df.columns and 'wdr_cluster_invalid' in filtered_df.columns:
-            # Track filtering statistics
-            total_sessions = len(results_df)
-            sessions_to_filter = filtered_df['wdr_session_invalid'].sum()
-            # Use fillna to handle NaN values in boolean filtering
-            clusters_to_filter = filtered_df[~filtered_df['wdr_session_invalid'] & filtered_df['wdr_cluster_invalid'].fillna(False)].shape[0]
-            
-            # Now apply the WDR filtering by setting trade values to NaN based on WDR rules
-            session_mask = filtered_df['wdr_session_invalid']
-            # Use fillna to handle NaN values in boolean filtering
-            cluster_mask = filtered_df['wdr_cluster_invalid'].fillna(False)
-            
-            # Force these columns to NaN for filtered rows
-            for col in ['trade_entry', 'SL', 'trade_exit', 'exit_reason', 'pnl_price', 'pnl_R', 'pnl_ticks']:
-                filtered_df.loc[session_mask | cluster_mask, col] = np.nan
-            
-            # Print initial filtering stats
-            print(f"\nWDR Filtering Applied:")
-            print(f"  - {sessions_to_filter} sessions invalid ({sessions_to_filter/total_sessions*100 if total_sessions > 0 else 0:.2f}%)")
-            print(f"  - {clusters_to_filter} additional entries invalid")
-            
-            # Count trades before and after filtering
-            unfiltered_trades = results_df['trade_entry'].notna().sum()
-            filtered_trades = filtered_df['trade_entry'].notna().sum()
-            trades_removed = unfiltered_trades - filtered_trades
-            
-            print(f"Trades affected: {trades_removed}/{unfiltered_trades} ({trades_removed/unfiltered_trades*100 if unfiltered_trades > 0 else 0:.2f}% removed)")
-        
-        # Save results to CSV files
-        output_dir = params['file_options']['output_dir']
-        results_df.to_csv(f"{output_dir}/unfiltered_results.csv", index=False)
-        if params["use_wdr_filter"] or params["use_m7b_filter"]:
-            filtered_df.to_csv(f"{output_dir}/filtered_results.csv", index=False)
-        
-        # Display results based on enabled output sections
-        # Note: Some functions return values needed by other functions, so we need to capture them
-        unfiltered_valid_trades_df, filtered_valid_trades = display_overall_stats(results_df, filtered_df, params)
-        display_day_performance(unfiltered_valid_trades_df, filtered_valid_trades, params)
-        config_metrics_df, filtered_config_metrics_df = display_top_configs(results_df, filtered_df, unfiltered_valid_trades_df, filtered_valid_trades, params)
-        display_target_configs(config_metrics_df, filtered_config_metrics_df, params)
-        display_raw_data(results_df, params)
-        display_filter_stats(results_df, params)
-        
-        # Generate equity curves if requested
-        if params['generate_equity_curve']:
-            print("\nGenerating equity curves...")
-            if not unfiltered_valid_trades_df.empty:
-                generate_equity_curve(unfiltered_valid_trades_df, output_dir, "All_Trades", "Unfiltered")
-                
-                # Generate separate curves for long and short trades if in 'both' mode
-                if params["analysis_mode"] == "both":
-                    long_trades = unfiltered_valid_trades_df[unfiltered_valid_trades_df['trade_direction'] == "long"]
-                    short_trades = unfiltered_valid_trades_df[unfiltered_valid_trades_df['trade_direction'] == "short"]
-                    
-                    if not long_trades.empty:
-                        generate_equity_curve(long_trades, output_dir, "Long_Trades", "Unfiltered")
-                    if not short_trades.empty:
-                        generate_equity_curve(short_trades, output_dir, "Short_Trades", "Unfiltered")
-            
-            if (params["use_wdr_filter"] or params["use_m7b_filter"]) and not filtered_valid_trades.empty:
-                generate_equity_curve(filtered_valid_trades, output_dir, "All_Trades", "Filtered")
-                
-                # Generate separate curves for long and short trades if in 'both' mode
-                if params["analysis_mode"] == "both":
-                    long_trades = filtered_valid_trades[filtered_valid_trades['trade_direction'] == "long"]
-                    short_trades = filtered_valid_trades[filtered_valid_trades['trade_direction'] == "short"]
-                    
-                    if not long_trades.empty:
-                        generate_equity_curve(long_trades, output_dir, "Long_Trades", "Filtered")
-                    if not short_trades.empty:
-                        generate_equity_curve(short_trades, output_dir, "Short_Trades", "Filtered")
     
     print("\nAnalysis complete!")
 
