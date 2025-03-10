@@ -482,26 +482,35 @@ def calculate_m7b(session_df):
     Calculate the M7 Box (M7B) for a session.
     M7B is defined as the range between the open price at 9:30 and close price at 10:25.
     """
-    # Get the 9:30 candle (market open)
-    market_open_df = session_df[session_df["timestamp"].dt.time == pd.to_datetime("09:30").time()]
-    
-    # Get the 10:25 candle (end of DR period)
-    dr_end_df = session_df[session_df["timestamp"].dt.time == pd.to_datetime("10:25").time()]
-    
-    # Debug print if we can't find these candles
-    if market_open_df.empty or dr_end_df.empty:
-        session_date = session_df["date"].iloc[0] if not session_df.empty else "unknown"
+    # Ensure timestamp column exists
+    if "timestamp" not in session_df.columns:
+        print(f"Error: 'timestamp' column not found in calculate_m7b for session date {session_df['date'].iloc[0] if 'date' in session_df.columns else 'unknown'}")
         return None, None
     
-    # Get the open price at 9:30 and close price at 10:25
-    open_price = market_open_df.iloc[0]["open"]
-    close_price = dr_end_df.iloc[0]["close"]
-    
-    # Define M7B upper and lower boundaries
-    m7b_upper = max(open_price, close_price)
-    m7b_lower = min(open_price, close_price)
-    
-    return m7b_upper, m7b_lower
+    try:
+        # Get the 9:30 candle (market open)
+        market_open_df = session_df[session_df["timestamp"].dt.time == pd.to_datetime("09:30").time()]
+        
+        # Get the 10:25 candle (end of DR period)
+        dr_end_df = session_df[session_df["timestamp"].dt.time == pd.to_datetime("10:25").time()]
+        
+        # Debug print if we can't find these candles
+        if market_open_df.empty or dr_end_df.empty:
+            session_date = session_df["date"].iloc[0] if not session_df.empty else "unknown"
+            return None, None
+        
+        # Get the open price at 9:30 and close price at 10:25
+        open_price = market_open_df.iloc[0]["open"]
+        close_price = dr_end_df.iloc[0]["close"]
+        
+        # Define M7B upper and lower boundaries
+        m7b_upper = max(open_price, close_price)
+        m7b_lower = min(open_price, close_price)
+        
+        return m7b_upper, m7b_lower
+    except Exception as e:
+        print(f"Error in calculate_m7b: {e}")
+        return None, None
 
 def simulate_trade(post_trade_df, entry_price, TP, SL, direction, tick_size):
     """
@@ -535,15 +544,36 @@ def simulate_trade(post_trade_df, entry_price, TP, SL, direction, tick_size):
 
 def get_long_session_metrics_with_sd_retracement(session_df, sd_retracement, params, tuesday_dates=None, tuesday_wdr=None):
     """Process long trade setup for a session using SD retracement and Target SD parameters"""
+    # Check if the required columns exist
+    if "timestamp" not in session_df.columns:
+        print(f"Error: 'timestamp' column not found in the DataFrame for session date {session_df['date'].iloc[0] if 'date' in session_df.columns else 'unknown'}")
+        print(f"Available columns: {session_df.columns}")
+        return None
+    
+    # Ensure timestamp is a datetime type
+    if not pd.api.types.is_datetime64_dtype(session_df["timestamp"]):
+        try:
+            session_df = session_df.copy()
+            session_df["timestamp"] = pd.to_datetime(session_df["timestamp"])
+        except Exception as e:
+            print(f"Error converting timestamp to datetime: {e}")
+            return None
+    
     # Get time windows from parameters
     long_confirm_start = pd.to_datetime(params["long_confirm_start"]).time()
     long_confirm_end = pd.to_datetime(params["long_confirm_end"]).time()
     tick_size = params["tick_size"]
     
     # Get necessary price data
-    dr_df = session_df[(session_df["timestamp"].dt.time >= pd.to_datetime("09:30").time()) &
-                      (session_df["timestamp"].dt.time <= pd.to_datetime("10:25").time())]
-    if dr_df.empty:
+    try:
+        dr_df = session_df[(session_df["timestamp"].dt.time >= pd.to_datetime("09:30").time()) &
+                          (session_df["timestamp"].dt.time <= pd.to_datetime("10:25").time())]
+        if dr_df.empty:
+            return None
+    except Exception as e:
+        print(f"Error filtering DR window: {e}")
+        print(f"timestamp dtype: {session_df['timestamp'].dtype}")
+        print(f"timestamp sample: {session_df['timestamp'].head()}")
         return None
     
     DR_high = dr_df["high"].max()
@@ -786,15 +816,36 @@ def get_long_session_metrics_with_sd_retracement(session_df, sd_retracement, par
 
 def get_short_session_metrics_with_sd_retracement(session_df, sd_retracement, params, tuesday_dates=None, tuesday_wdr=None):
     """Process short trade setup for a session using SD retracement and Target SD parameters"""
+    # Check if the required columns exist
+    if "timestamp" not in session_df.columns:
+        print(f"Error: 'timestamp' column not found in the DataFrame for session date {session_df['date'].iloc[0] if 'date' in session_df.columns else 'unknown'}")
+        print(f"Available columns: {session_df.columns}")
+        return None
+    
+    # Ensure timestamp is a datetime type
+    if not pd.api.types.is_datetime64_dtype(session_df["timestamp"]):
+        try:
+            session_df = session_df.copy()
+            session_df["timestamp"] = pd.to_datetime(session_df["timestamp"])
+        except Exception as e:
+            print(f"Error converting timestamp to datetime: {e}")
+            return None
+    
     # Get time windows from parameters
     short_confirm_start = pd.to_datetime(params["short_confirm_start"]).time()
     short_confirm_end = pd.to_datetime(params["short_confirm_end"]).time()
     tick_size = params["tick_size"]
     
     # Get necessary price data
-    dr_df = session_df[(session_df["timestamp"].dt.time >= pd.to_datetime("09:30").time()) &
-                      (session_df["timestamp"].dt.time <= pd.to_datetime("10:25").time())]
-    if dr_df.empty:
+    try:
+        dr_df = session_df[(session_df["timestamp"].dt.time >= pd.to_datetime("09:30").time()) &
+                          (session_df["timestamp"].dt.time <= pd.to_datetime("10:25").time())]
+        if dr_df.empty:
+            return None
+    except Exception as e:
+        print(f"Error filtering DR window: {e}")
+        print(f"timestamp dtype: {session_df['timestamp'].dtype}")
+        print(f"timestamp sample: {session_df['timestamp'].head()}")
         return None
     
     DR_high = dr_df["high"].max()
@@ -1040,9 +1091,18 @@ def process_all_sessions(df, sd_retracement_levels, params, tuesday_dates=None, 
     results = []
     
     # Group by date to process session by session
-    for date, session_df in df.groupby('date'):
+    for date, group_df in df.groupby('date'):
         day_name = pd.Timestamp(date).day_name()
         
+        # Reset index to ensure columns access
+        session_df = group_df.reset_index(drop=True)
+        
+        # Check if we have the timestamp column
+        if "timestamp" not in session_df.columns:
+            print(f"Warning: timestamp column missing for date {date}")
+            print(f"Available columns: {session_df.columns}")
+            continue
+            
         # Skip if selected_days is specified and this day is not in it
         if params['selected_days'] is not None and day_name not in params['selected_days']:
             continue
@@ -1082,7 +1142,16 @@ def process_parameter_combo(combo_args):
     results = []
     
     # Group by date to process session by session
-    for date, session_df in df.groupby('date'):
+    for date, group_df in df.groupby('date'):
+        # Reset index to ensure column access
+        session_df = group_df.reset_index(drop=True)
+        
+        # Check if timestamp column exists
+        if "timestamp" not in session_df.columns:
+            print(f"Warning: timestamp column missing in parameter sweep for date {date}")
+            print(f"Available columns: {session_df.columns}")
+            continue
+            
         day_name = pd.Timestamp(date).day_name()
         
         # For each possible confirmation time
@@ -1550,7 +1619,15 @@ def perform_walk_forward_analysis(df, params, top_configs=None):
                 
                 # Apply this configuration to get backtest results
                 if direction == 'long':
-                    for date, session_df in backtest_day_df.groupby('date'):
+                    for date, group_df in backtest_day_df.groupby('date'):
+                        # Important: Reset index to ensure all columns are accessible as regular columns
+                        session_df = group_df.reset_index(drop=True)
+                        
+                        if "timestamp" not in session_df.columns:
+                            print(f"Warning: timestamp column missing in backtest data for {date}")
+                            print(f"Available columns: {session_df.columns}")
+                            continue
+                        
                         metrics = get_long_session_metrics_with_sd_retracement(
                             session_df, config['sd_retracement'], config_params
                         )
@@ -1560,7 +1637,15 @@ def perform_walk_forward_analysis(df, params, top_configs=None):
                             metrics['target_sd'] = config['target_sd']
                             backtest_results.append(metrics)
                 else:
-                    for date, session_df in backtest_day_df.groupby('date'):
+                    for date, group_df in backtest_day_df.groupby('date'):
+                        # Important: Reset index to ensure all columns are accessible as regular columns
+                        session_df = group_df.reset_index(drop=True)
+                        
+                        if "timestamp" not in session_df.columns:
+                            print(f"Warning: timestamp column missing in backtest data for {date}")
+                            print(f"Available columns: {session_df.columns}")
+                            continue
+                        
                         metrics = get_short_session_metrics_with_sd_retracement(
                             session_df, config['sd_retracement'], config_params
                         )
@@ -1593,25 +1678,53 @@ def perform_walk_forward_analysis(df, params, top_configs=None):
             if not walkforward_day_df.empty:
                 # Apply this configuration to get walk-forward results
                 if direction == 'long':
-                    for date, session_df in walkforward_day_df.groupby('date'):
-                        metrics = get_long_session_metrics_with_sd_retracement(
-                            session_df, config['sd_retracement'], config_params
-                        )
-                        if metrics and metrics['confirm_time_str'] == conf_time:
-                            metrics['config_key'] = f"{day}_{conf_time}_{direction}"
-                            metrics['sd_retracement'] = config['sd_retracement']
-                            metrics['target_sd'] = config['target_sd']
-                            walkforward_results.append(metrics)
+                    for date, group_df in walkforward_day_df.groupby('date'):
+                        # Important: Reset index to ensure all columns are accessible as regular columns
+                        session_df = group_df.reset_index(drop=True)
+                        
+                        if "timestamp" not in session_df.columns:
+                            print(f"Warning: timestamp column missing in walk-forward data for {date}")
+                            print(f"Available columns: {session_df.columns}")
+                            continue
+                        
+                        try:
+                            metrics = get_long_session_metrics_with_sd_retracement(
+                                session_df, config['sd_retracement'], config_params
+                            )
+                            if metrics and metrics['confirm_time_str'] == conf_time:
+                                metrics['config_key'] = f"{day}_{conf_time}_{direction}"
+                                metrics['sd_retracement'] = config['sd_retracement']
+                                metrics['target_sd'] = config['target_sd']
+                                walkforward_results.append(metrics)
+                        except Exception as e:
+                            print(f"Error processing walk-forward data for {date}: {e}")
+                            print(f"DataFrame shape: {session_df.shape}")
+                            print(f"DataFrame columns: {session_df.columns}")
+                            continue
                 else:
-                    for date, session_df in walkforward_day_df.groupby('date'):
-                        metrics = get_short_session_metrics_with_sd_retracement(
-                            session_df, config['sd_retracement'], config_params
-                        )
-                        if metrics and metrics['confirm_time_str'] == conf_time:
-                            metrics['config_key'] = f"{day}_{conf_time}_{direction}"
-                            metrics['sd_retracement'] = config['sd_retracement']
-                            metrics['target_sd'] = config['target_sd']
-                            walkforward_results.append(metrics)
+                    for date, group_df in walkforward_day_df.groupby('date'):
+                        # Important: Reset index to ensure all columns are accessible as regular columns
+                        session_df = group_df.reset_index(drop=True)
+                        
+                        if "timestamp" not in session_df.columns:
+                            print(f"Warning: timestamp column missing in walk-forward data for {date}")
+                            print(f"Available columns: {session_df.columns}")
+                            continue
+                        
+                        try:
+                            metrics = get_short_session_metrics_with_sd_retracement(
+                                session_df, config['sd_retracement'], config_params
+                            )
+                            if metrics and metrics['confirm_time_str'] == conf_time:
+                                metrics['config_key'] = f"{day}_{conf_time}_{direction}"
+                                metrics['sd_retracement'] = config['sd_retracement']
+                                metrics['target_sd'] = config['target_sd']
+                                walkforward_results.append(metrics)
+                        except Exception as e:
+                            print(f"Error processing walk-forward data for {date}: {e}")
+                            print(f"DataFrame shape: {session_df.shape}")
+                            print(f"DataFrame columns: {session_df.columns}")
+                            continue
                 
                 # Print walk-forward results
                 if walkforward_results:
@@ -1819,7 +1932,7 @@ def perform_walk_forward_analysis(df, params, top_configs=None):
                 plt.plot(range(len(backtest_trades), len(backtest_trades) + len(walkforward_trades)), 
                          backtest_trades['cumulative_r'].iloc[-1] + walkforward_trades['cumulative_r'], 
                          label=f'Walk-Forward ({walkforward_trades["pnl_R"].sum():.2f}R)', color='green')
-                
+
                 # Add vertical line to mark the separation
                 plt.axvline(x=len(backtest_trades), color='r', linestyle='--', alpha=0.7, 
                             label=f'Period Split (Backtest End: {backtest_end}, Walk-Forward Start: {walkforward_start})')
@@ -1839,7 +1952,7 @@ def perform_walk_forward_analysis(df, params, top_configs=None):
                 print(f"Combined equity curve saved to {output_dir}/visualizations/combined_equity_curve.png")
                 
                 # Create a bar chart comparing metrics
-                if not combined_df.empty:
+                if 'combined_df' in locals() and not combined_df.empty:
                     # Group by configuration and calculate metrics
                     config_means = combined_df.groupby('period').agg({
                         'win_rate': 'mean',
